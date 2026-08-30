@@ -1,0 +1,10 @@
+* text=auto
+*.py text eol=lf
+*.ps1 text eol=crlf
+*.md text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.patch text eol=lf whitespace=-blank-at-eol,-space-before-tab
+*.txt text eol=lf
+web/fonts/*-OFL.txt whitespace=-blank-at-eol
+*.ttf binary

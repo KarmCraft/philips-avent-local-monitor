@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install Python dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Run unit tests
+        run: python -m unittest discover -s tests -v
+      - name: Parse PowerShell scripts
+        shell: pwsh
+        run: |
+          $errors = [System.Collections.Generic.List[object]]::new()
+          Get-ChildItem -Path . -Filter '*.ps1' -Recurse | ForEach-Object {
+            $tokens = $null
+            $parseErrors = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile(
+              $_.FullName,
+              [ref]$tokens,
+              [ref]$parseErrors
+            )
+            foreach ($parseError in $parseErrors) {
+              $errors.Add($parseError)
+            }
+          }
+          if ($errors.Count) {
+            $errors | Format-List
+            throw "$($errors.Count) PowerShell parse error(s) found."
+          }

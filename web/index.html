@@ -1,0 +1,593 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Avent Baby Monitor</title>
+  <style>
+    @font-face {
+      font-family: "Playfair Display";
+      src: url("/fonts/PlayfairDisplay-Variable.ttf") format("truetype");
+      font-style: normal;
+      font-weight: 400 900;
+      font-display: swap;
+    }
+    @font-face {
+      font-family: "JetBrains Mono";
+      src: url("/fonts/JetBrainsMono-Variable.ttf") format("truetype");
+      font-style: normal;
+      font-weight: 100 800;
+      font-display: swap;
+    }
+
+    :root {
+      color-scheme: dark;
+      font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --canvas: #0b0e12;
+      --surface: #11161d;
+      --surface-raised: #171d26;
+      --surface-soft: #1c2430;
+      --field: #0d1218;
+      --line: #293342;
+      --line-strong: #3a4658;
+      --ink: #f1f4f8;
+      --ink-soft: #c8d0dc;
+      --ink-muted: #909cab;
+      --accent: #8bb6ff;
+      --accent-hover: #a4c6ff;
+      --accent-ink: #09111f;
+      --success: #58c993;
+      --warning: #e0ad5e;
+      --danger: #e07b82;
+      --danger-surface: #542a31;
+      --focus: #b8d3ff;
+      --radius: 14px;
+      --ease: cubic-bezier(.16, 1, .3, 1);
+    }
+
+    * { box-sizing: border-box; }
+    html { min-width: 320px; background: var(--canvas); }
+    body { margin: 0; min-height: 100dvh; background: var(--canvas); color: var(--ink); }
+    button, input, select { font: inherit; }
+    button, select, input[type="checkbox"] { -webkit-tap-highlight-color: transparent; }
+
+    main { width: min(1180px, calc(100% - 40px)); margin: 0 auto; padding: 34px 0 64px; }
+    .app-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; margin-bottom: 24px; }
+    .brand { min-width: 0; }
+    h1, h2, h3 { font-family: "Playfair Display", Georgia, serif; text-wrap: balance; }
+    h1 { margin: 0; font-size: clamp(2rem, 4vw, 3.25rem); font-weight: 650; line-height: 1; letter-spacing: -.03em; }
+    .subtitle { margin: 8px 0 0; color: var(--ink-muted); font-size: .88rem; line-height: 1.4; }
+    .status { display: inline-flex; align-items: center; gap: 10px; min-height: 38px; max-width: 100%; padding: 8px 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); color: var(--ink-soft); font-size: .86rem; line-height: 1.25; white-space: nowrap; }
+    .dot { flex: 0 0 auto; width: 8px; height: 8px; border-radius: 50%; background: var(--warning); box-shadow: 0 0 0 4px rgb(224 173 94 / .12); }
+    .dot.live { background: var(--success); box-shadow: 0 0 0 4px rgb(88 201 147 / .13); }
+
+    .panel { background: var(--surface); border-radius: var(--radius); overflow: hidden; box-shadow: 0 20px 55px rgb(0 0 0 / .24); }
+    .panel + .panel { margin-top: 22px; }
+    .viewer { aspect-ratio: 16 / 9; min-height: 220px; background: #030507; display: grid; place-items: center; box-shadow: inset 0 0 0 1px rgb(255 255 255 / .035); }
+    iframe { width: 100%; height: 100%; border: 0; background: #030507; }
+    .empty { display: grid; justify-items: center; gap: 16px; max-width: 40ch; padding: 36px; color: var(--ink-muted); text-align: center; line-height: 1.55; }
+    .empty::before { content: ""; width: 34px; height: 34px; border: 1px solid var(--line-strong); border-radius: 50%; box-shadow: inset 0 0 0 8px #030507; }
+
+    .toolbar { display: grid; grid-template-columns: minmax(240px, 1fr) auto auto; align-items: center; gap: 12px; padding: 14px; background: var(--surface-raised); border-top: 1px solid var(--line); }
+    .button-group { display: flex; flex-wrap: wrap; gap: 8px; }
+
+    button { min-height: 44px; border: 1px solid transparent; border-radius: 10px; padding: 10px 16px; background: var(--accent); color: var(--accent-ink); font-weight: 680; line-height: 1.15; cursor: pointer; transition: background-color .18s var(--ease), border-color .18s var(--ease), color .18s var(--ease), transform .18s var(--ease); }
+    button:hover:not(:disabled) { background: var(--accent-hover); }
+    button:active:not(:disabled) { transform: translateY(1px); }
+    button.secondary { border-color: var(--line); background: var(--surface-soft); color: var(--ink); }
+    button.secondary:hover:not(:disabled) { border-color: var(--line-strong); background: #242e3c; }
+    button.danger { border-color: #78404a; background: var(--danger-surface); color: #fff1f2; }
+    button.danger:hover:not(:disabled) { border-color: #9b535e; background: #66333b; }
+    button:disabled { opacity: .45; cursor: not-allowed; transform: none; }
+    button[aria-busy="true"] { cursor: wait; }
+
+    select, input { width: 100%; min-height: 44px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--field); color: var(--ink); padding: 10px 12px; transition: border-color .18s var(--ease), background-color .18s var(--ease), box-shadow .18s var(--ease); }
+    select:hover:not(:disabled), input:hover:not(:disabled) { border-color: #4b5b70; }
+    select:disabled, input:disabled { opacity: .55; cursor: not-allowed; }
+    input[type="checkbox"] { flex: 0 0 auto; width: 19px; min-height: 19px; height: 19px; margin: 2px 0 0; accent-color: var(--accent); }
+    button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
+
+    form { display: grid; gap: 0; }
+    label { display: grid; gap: 7px; color: var(--ink-soft); font-size: .88rem; line-height: 1.4; }
+    .section-heading { display: grid; grid-template-columns: minmax(0, 1fr) minmax(250px, 360px); align-items: end; gap: 40px; padding: 28px 30px 24px; border-bottom: 1px solid var(--line); }
+    .section-heading h2 { margin: 0; font-size: clamp(1.55rem, 3vw, 2.2rem); font-weight: 620; line-height: 1.08; letter-spacing: -.025em; }
+    .section-heading .note { max-width: 68ch; margin-top: 10px; }
+    .capture-status { align-self: stretch; display: flex; align-items: center; padding: 13px 15px; border-radius: 10px; background: var(--surface-soft); color: var(--ink-soft); font-size: .88rem; line-height: 1.5; }
+
+    .settings-body { display: grid; gap: 18px; padding: 26px 30px 30px; }
+    .capture-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(180px, .45fr); gap: 14px; }
+    .auto-setting { display: flex; align-items: flex-start; gap: 10px; padding: 13px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-raised); color: var(--ink); }
+    .auto-setting span { display: grid; gap: 3px; }
+    .auto-setting small { color: var(--ink-muted); font-size: .78rem; line-height: 1.4; }
+    .capture-actions { display: flex; flex-wrap: wrap; gap: 9px; align-items: center; }
+
+    .daily-settings { display: grid; grid-template-columns: minmax(210px, .7fr) minmax(0, 1.3fr); gap: 34px; padding: 28px 30px 30px; border-top: 1px solid var(--line); background: var(--surface-raised); }
+    .daily-settings h3 { margin: 0; font-size: 1.35rem; font-weight: 610; letter-spacing: -.015em; }
+    .daily-settings .note { margin-top: 9px; }
+    .daily-controls { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .setting-option { display: flex; align-items: flex-start; gap: 10px; min-height: 76px; padding: 13px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--ink); }
+    .setting-option span { display: grid; gap: 4px; }
+    .setting-option strong { font-size: .88rem; font-weight: 650; }
+    .setting-option small { color: var(--ink-muted); font-size: .76rem; line-height: 1.4; }
+    .daily-action { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 2px; }
+    .daily-controls > .message { grid-column: 1 / -1; }
+
+    .setup-shell { padding: 28px 30px 30px; }
+    .setup-shell form { max-width: 540px; gap: 16px; }
+    .setup-shell form + form { margin-top: 20px; }
+    .setup-shell h2 { margin: 0; font-size: 1.7rem; letter-spacing: -.02em; }
+    .row { display: grid; grid-template-columns: 1fr 140px; gap: 14px; }
+    .note { color: var(--ink-muted); font-size: .86rem; line-height: 1.55; margin: 0; }
+    .message { color: #f1b4b8; font-size: .86rem; line-height: 1.45; }
+    .message:empty { display: none; }
+    .path { font-family: "JetBrains Mono", Consolas, monospace; font-size: .84rem; letter-spacing: -.015em; }
+    [hidden] { display: none !important; }
+
+    @media (max-width: 820px) {
+      main { width: min(100% - 28px, 1180px); padding-top: 24px; }
+      .app-header { align-items: flex-start; }
+      .toolbar { grid-template-columns: 1fr; }
+      .toolbar .button-group { display: grid; grid-template-columns: 1fr 1fr; }
+      .toolbar .danger { grid-column: 1 / -1; }
+      .section-heading { grid-template-columns: 1fr; gap: 18px; }
+      .daily-settings { grid-template-columns: 1fr; gap: 18px; }
+    }
+
+    @media (max-width: 560px) {
+      main { width: min(100% - 20px, 1180px); padding: 20px 0 42px; }
+      .app-header { flex-direction: column; gap: 14px; margin-bottom: 18px; }
+      h1 { font-size: 2.15rem; }
+      .status { width: fit-content; white-space: normal; }
+      .viewer { min-height: 190px; }
+      .empty { padding: 28px 22px; }
+      .toolbar { padding: 12px; }
+      .toolbar .button-group { grid-template-columns: 1fr; }
+      .toolbar .danger { grid-column: auto; }
+      .section-heading, .settings-body, .daily-settings, .setup-shell { padding-left: 20px; padding-right: 20px; }
+      .section-heading { padding-top: 23px; padding-bottom: 20px; }
+      .settings-body { padding-top: 22px; padding-bottom: 24px; }
+      .daily-settings { padding-top: 23px; padding-bottom: 24px; }
+      .capture-grid, .daily-controls, .row { grid-template-columns: 1fr; }
+      .capture-actions { display: grid; grid-template-columns: 1fr 1fr; }
+      .capture-actions .danger { grid-column: 1 / -1; }
+      .daily-action { grid-column: auto; display: grid; align-items: stretch; }
+      .daily-action button { width: 100%; }
+      button { padding-inline: 13px; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header class="app-header">
+      <div class="brand">
+        <h1>Baby Monitor</h1>
+        <p class="subtitle">Philips Avent SCD953/26, local viewer</p>
+      </div>
+      <div class="status" id="monitorStatus" role="status" aria-live="polite"><span class="dot" id="dot"></span><span id="statusText">Checking...</span></div>
+    </header>
+
+    <section class="panel" id="monitor" aria-label="Live monitor" hidden>
+      <div class="viewer" id="viewer"><div class="empty">Starting the local stream...</div></div>
+      <div class="toolbar">
+        <select id="cameraSelect" aria-label="Camera"></select>
+        <div class="button-group">
+          <button type="button" id="reload">Reload video</button>
+          <button type="button" class="secondary" id="restart">Restart stream</button>
+        </div>
+        <div class="button-group">
+          <button type="button" class="danger" id="stop">Stop monitor</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel" id="captureCard" hidden>
+      <form class="capture-form" id="captureSettings">
+        <div class="section-heading">
+          <div>
+            <h2>Recording</h2>
+            <p class="note">Capture begins only after a real video packet arrives and closes cleanly when the feed disappears.</p>
+          </div>
+          <div class="capture-status" id="captureStatus" role="status" aria-live="polite">Capture settings are loading...</div>
+        </div>
+        <div class="settings-body">
+          <label>Output folder
+            <input class="path" id="capturePath" type="text" value="" placeholder="C:\Captures\AventMonitor" spellcheck="false" required>
+          </label>
+          <div class="capture-grid">
+            <label>Mode
+              <select id="captureMode">
+                <option value="off">Off</option>
+                <option value="video">Continuous video</option>
+                <option value="snapshots">Timed pictures</option>
+              </select>
+            </label>
+            <label>Picture interval (seconds)
+              <input id="snapshotInterval" type="number" min="1" max="3600" step="1" value="10">
+            </label>
+          </div>
+          <label class="auto-setting">
+            <input id="captureAutoStart" type="checkbox">
+            <span>Automatically capture when online<small>Recording resumes when the baby unit returns.</small></span>
+          </label>
+          <div class="capture-actions">
+            <button id="saveCapture" type="submit">Save settings</button>
+            <button id="startCapture" type="button" class="secondary">Start capture</button>
+            <button id="stopCapture" type="button" class="danger">Stop capture</button>
+          </div>
+          <div class="message" id="captureMessage" role="status" aria-live="polite"></div>
+        </div>
+        <div class="daily-settings">
+          <div>
+            <h3>Daily video files</h3>
+            <p class="note">Build one validated video for each completed day. Source deletion remains optional and guarded.</p>
+          </div>
+          <div class="daily-controls">
+            <label class="setting-option">
+              <input id="joinDailyVideos" type="checkbox">
+              <span><strong>Join daily video fragments</strong><small>Create a single daily MKV from validated recordings.</small></span>
+            </label>
+            <label class="setting-option">
+              <input id="deleteFragments" type="checkbox">
+              <span><strong>Delete fragments</strong><small>Available only after daily joining is enabled.</small></span>
+            </label>
+            <div class="daily-action">
+              <p class="note">Fragments are deleted only after the joined MKV and manifest pass validation.</p>
+              <button id="saveDailySettings" type="button" class="secondary">Save daily settings</button>
+            </div>
+            <div class="message" id="dailySettingsMessage" role="status" aria-live="polite"></div>
+          </div>
+        </div>
+      </form>
+    </section>
+
+    <section class="panel setup-shell" id="setup" hidden>
+      <form id="credentials">
+          <h2>Connect Baby Monitor+</h2>
+          <p class="note">Credentials go directly from this localhost page to Philips/Tuya. The password stays in memory only until email verification finishes.</p>
+          <label>Email<input id="email" type="email" autocomplete="username" required></label>
+          <label>Password<input id="password" type="password" autocomplete="current-password" required></label>
+          <div class="row">
+            <label>Account country
+              <select id="country">
+                <option value="41" selected>Switzerland (+41)</option>
+                <option value="49">Germany (+49)</option>
+                <option value="39">Italy (+39)</option>
+                <option value="43">Austria (+43)</option>
+                <option value="33">France (+33)</option>
+              </select>
+            </label>
+          </div>
+          <button id="sendCode" type="submit">Send verification code</button>
+          <div class="message" id="loginMessage" role="status" aria-live="polite"></div>
+        </form>
+
+        <form id="verification" hidden>
+          <h2>Email verification</h2>
+          <p class="note">Enter the six-digit code sent by Baby Monitor+.</p>
+          <label>Verification code<input id="mfa" inputmode="numeric" pattern="[0-9]{6}" autocomplete="one-time-code" maxlength="6" required></label>
+          <button id="finish" type="submit">Connect monitor</button>
+          <div class="message" id="mfaMessage" role="status" aria-live="polite"></div>
+        </form>
+    </section>
+  </main>
+
+  <script>
+    const $ = id => document.getElementById(id);
+    let flowId = null;
+    let cameras = [];
+    let captureLoaded = false;
+    let captureRunning = false;
+    let captureArmed = false;
+    let latestFeed = null;
+    let viewerLoadedFor = null;
+
+    async function api(path, options = {}) {
+      const response = await fetch(path, {headers: {'Content-Type': 'application/json'}, ...options});
+      const data = await response.json();
+      if (!response.ok || !data.ok) throw new Error(data.error || 'Request failed');
+      return data;
+    }
+
+    function setBusy(button, busy) {
+      button.disabled = busy;
+      button.setAttribute('aria-busy', String(busy));
+    }
+
+    function showViewerMessage(message) {
+      const existingFrame = $('viewer').querySelector('iframe');
+      if (existingFrame) existingFrame.src = 'about:blank';
+      $('viewer').innerHTML = '';
+      viewerLoadedFor = null;
+      const empty = document.createElement('div');
+      empty.className = 'empty';
+      empty.textContent = message;
+      $('viewer').appendChild(empty);
+    }
+
+    function loadViewer(camera) {
+      if (!camera || (viewerLoadedFor === camera.viewer_url && $('viewer').querySelector('iframe'))) return;
+      $('viewer').innerHTML = '';
+      const frame = document.createElement('iframe');
+      frame.src = camera.viewer_url;
+      frame.allow = 'autoplay; fullscreen';
+      frame.title = camera.name;
+      $('viewer').appendChild(frame);
+      viewerLoadedFor = camera.viewer_url;
+    }
+
+    function capturePayload() {
+      return {
+        output_path: $('capturePath').value.trim(),
+        mode: $('captureMode').value,
+        snapshot_interval: Number($('snapshotInterval').value),
+        auto_start: $('captureAutoStart').checked,
+        join_daily_videos: $('joinDailyVideos').checked,
+        delete_fragments: $('deleteFragments').checked
+      };
+    }
+
+    function dailySettingsPayload() {
+      return {
+        join_daily_videos: $('joinDailyVideos').checked,
+        delete_fragments: $('deleteFragments').checked
+      };
+    }
+
+    function updateDailySettings() {
+      const joining = $('joinDailyVideos').checked;
+      if (!joining) $('deleteFragments').checked = false;
+      $('deleteFragments').disabled = !joining;
+    }
+
+    function updateCaptureMode() {
+      $('capturePath').disabled = captureRunning;
+      $('captureMode').disabled = captureRunning;
+      $('snapshotInterval').disabled = captureRunning || $('captureMode').value !== 'snapshots';
+      $('captureAutoStart').disabled = captureRunning;
+      $('saveCapture').disabled = captureRunning;
+      $('startCapture').disabled = captureRunning || $('captureMode').value === 'off';
+    }
+
+    function applyCaptureStatus(capture, feed = latestFeed, syncForm = false) {
+      if (!capture) return;
+      captureRunning = capture.running;
+      captureArmed = Boolean(feed && feed.capture_armed);
+      if (syncForm || !captureLoaded) {
+        $('capturePath').value = capture.output_path;
+        $('captureMode').value = capture.mode;
+        $('snapshotInterval').value = capture.snapshot_interval;
+        $('captureAutoStart').checked = capture.auto_start;
+        $('joinDailyVideos').checked = capture.join_daily_videos;
+        $('deleteFragments').checked = capture.delete_fragments;
+        captureLoaded = true;
+      }
+
+      $('stopCapture').disabled = !(capture.running || captureArmed);
+      updateCaptureMode();
+      updateDailySettings();
+      if (capture.running && capture.last_error) {
+        $('captureStatus').textContent = `Capture active, reconnecting after: ${capture.last_error}`;
+      } else if (capture.running && capture.mode === 'video') {
+        $('captureStatus').textContent = `Recording timestamped video${capture.encoder ? ` with ${capture.encoder}` : ''} to ${capture.output_path}\\Video`;
+      } else if (capture.running) {
+        $('captureStatus').textContent = `Saving a metadata-tagged picture every ${capture.snapshot_interval} seconds to ${capture.output_path}\\Pictures`;
+      } else if (captureArmed && feed && feed.state === 'probing') {
+        $('captureStatus').textContent = 'Automatic capture is armed; checking for a valid video packet.';
+      } else if (captureArmed && feed && feed.state === 'offline') {
+        $('captureStatus').textContent = `Automatic capture is armed. Baby unit offline: ${feed.detail}`;
+      } else if (captureArmed) {
+        $('captureStatus').textContent = 'Automatic capture is armed and waiting for video.';
+      } else if (capture.last_error) {
+        $('captureStatus').textContent = `Capture stopped: ${capture.last_error}`;
+      } else {
+        $('captureStatus').textContent = capture.mode === 'off' ? 'Capture is off.' : 'Capture is configured and stopped.';
+      }
+    }
+
+    async function saveCaptureSettings() {
+      $('captureMessage').textContent = 'Checking the destination...';
+      const data = await api('/api/capture/settings', {method: 'POST', body: JSON.stringify(capturePayload())});
+      latestFeed = data.feed || latestFeed;
+      applyCaptureStatus(data.capture, latestFeed, true);
+      $('captureMessage').textContent = 'Settings saved. The destination is writable.';
+      return data;
+    }
+
+    async function saveDailySettings() {
+      $('dailySettingsMessage').textContent = 'Saving...';
+      const data = await api('/api/daily-video/settings', {method: 'POST', body: JSON.stringify(dailySettingsPayload())});
+      latestFeed = data.feed || latestFeed;
+      applyCaptureStatus(data.capture, latestFeed, true);
+      $('dailySettingsMessage').textContent = data.capture.join_daily_videos
+        ? (data.capture.delete_fragments ? 'Daily joining and verified fragment deletion are enabled.' : 'Daily joining is enabled; fragments will be retained.')
+        : 'Daily joining is disabled.';
+      return data;
+    }
+
+    async function refreshStatus() {
+      try {
+        const data = await api('/api/status');
+        latestFeed = data.feed;
+        const servicesReady = data.services.bridge && data.services.media && data.services.supervisor;
+        const videoAvailable = Boolean(data.feed && data.feed.video_available);
+        $('dot').classList.toggle('live', videoAvailable);
+        if (!data.configured) {
+          $('statusText').textContent = 'Setup required';
+        } else if (!servicesReady) {
+          $('statusText').textContent = 'Local services recovering...';
+        } else if (data.feed.state === 'recording') {
+          $('statusText').textContent = 'Video online, recording';
+        } else if (data.feed.state === 'online') {
+          $('statusText').textContent = 'Video online';
+        } else if (data.feed.state === 'probing') {
+          $('statusText').textContent = 'Checking baby unit...';
+        } else if (data.feed.state === 'offline') {
+          $('statusText').textContent = 'Baby unit offline';
+        } else {
+          $('statusText').textContent = 'Feed monitoring stopped';
+        }
+        $('setup').hidden = data.configured;
+        $('monitor').hidden = !data.configured;
+        $('captureCard').hidden = !data.configured;
+        applyCaptureStatus(data.capture, data.feed, !captureLoaded);
+        if (data.configured) {
+          cameras = data.cameras;
+          if ($('cameraSelect').options.length !== cameras.length) {
+            $('cameraSelect').innerHTML = cameras.map((camera, index) => `<option value="${index}">${camera.name}</option>`).join('');
+          }
+          const selected = cameras[Number($('cameraSelect').value || 0)];
+          if (videoAvailable && selected) {
+            loadViewer(selected);
+          } else if (data.feed.state === 'probing') {
+            showViewerMessage('Checking the baby unit for video...');
+          } else if (!videoAvailable) {
+            showViewerMessage(`Baby unit offline. Checking again automatically in ${data.feed.probe_interval_seconds} seconds.`);
+          }
+          $('reload').disabled = !videoAvailable;
+        }
+      } catch (error) {
+        $('statusText').textContent = 'Website service unavailable';
+      }
+    }
+
+    $('credentials').addEventListener('submit', async event => {
+      event.preventDefault();
+      setBusy($('sendCode'), true);
+      $('loginMessage').textContent = 'Contacting Baby Monitor+...';
+      try {
+        const data = await api('/api/login/start', {
+          method: 'POST',
+          body: JSON.stringify({email: $('email').value, password: $('password').value, country_code: $('country').value})
+        });
+        flowId = data.flow_id;
+        $('credentials').hidden = true;
+        $('verification').hidden = false;
+        $('mfa').focus();
+      } catch (error) {
+        $('loginMessage').textContent = error.message;
+      } finally {
+        setBusy($('sendCode'), false);
+      }
+    });
+
+    $('verification').addEventListener('submit', async event => {
+      event.preventDefault();
+      setBusy($('finish'), true);
+      $('mfaMessage').textContent = 'Discovering the monitor...';
+      try {
+        await api('/api/login/complete', {method: 'POST', body: JSON.stringify({flow_id: flowId, mfa_code: $('mfa').value})});
+        $('password').value = '';
+        await new Promise(resolve => setTimeout(resolve, 1800));
+        await refreshStatus();
+      } catch (error) {
+        $('mfaMessage').textContent = error.message;
+      } finally {
+        setBusy($('finish'), false);
+      }
+    });
+
+    $('cameraSelect').addEventListener('change', event => loadViewer(cameras[Number(event.target.value)]));
+    $('reload').addEventListener('click', () => loadViewer(cameras[Number($('cameraSelect').value || 0)]));
+    $('restart').addEventListener('click', async () => {
+      setBusy($('restart'), true);
+      try {
+        await api('/api/restart', {method: 'POST', body: '{}'});
+        await new Promise(resolve => setTimeout(resolve, 1800));
+        await refreshStatus();
+      } finally { setBusy($('restart'), false); }
+    });
+
+    $('captureMode').addEventListener('change', updateCaptureMode);
+    $('joinDailyVideos').addEventListener('change', updateDailySettings);
+    $('saveDailySettings').addEventListener('click', async () => {
+      setBusy($('saveDailySettings'), true);
+      try {
+        await saveDailySettings();
+      } catch (error) {
+        $('dailySettingsMessage').textContent = error.message;
+      } finally {
+        setBusy($('saveDailySettings'), false);
+        updateDailySettings();
+      }
+    });
+    $('captureSettings').addEventListener('submit', async event => {
+      event.preventDefault();
+      setBusy($('saveCapture'), true);
+      try {
+        await saveCaptureSettings();
+      } catch (error) {
+        $('captureMessage').textContent = error.message;
+      } finally {
+        setBusy($('saveCapture'), false);
+        updateCaptureMode();
+      }
+    });
+
+    $('startCapture').addEventListener('click', async () => {
+      setBusy($('startCapture'), true);
+      $('captureMessage').textContent = 'Starting capture...';
+      try {
+        await saveCaptureSettings();
+        const data = await api('/api/capture/start', {method: 'POST', body: '{}'});
+        latestFeed = data.feed || latestFeed;
+        applyCaptureStatus(data.capture, latestFeed, true);
+        $('captureMessage').textContent = data.capture.running ? 'Capture started.' : 'Capture armed; recording will start when video is available.';
+      } catch (error) {
+        $('captureMessage').textContent = error.message;
+      } finally {
+        setBusy($('startCapture'), false);
+        updateCaptureMode();
+      }
+    });
+
+    $('stopCapture').addEventListener('click', async () => {
+      setBusy($('stopCapture'), true);
+      $('captureMessage').textContent = 'Finalizing capture...';
+      try {
+        const data = await api('/api/capture/stop', {method: 'POST', body: '{}'});
+        latestFeed = data.feed || latestFeed;
+        applyCaptureStatus(data.capture, latestFeed, true);
+        $('captureMessage').textContent = 'Capture stopped safely.';
+      } catch (error) {
+        $('captureMessage').textContent = error.message;
+      } finally {
+        setBusy($('stopCapture'), false);
+        $('stopCapture').disabled = !(captureRunning || captureArmed);
+      }
+    });
+
+    $('stop').addEventListener('click', async () => {
+      const approved = window.confirm('Stop the monitor and this local website? It will stay off until you start it manually or log in to Windows again.');
+      if (!approved) return;
+
+      setBusy($('stop'), true);
+      $('reload').disabled = true;
+      $('restart').disabled = true;
+      $('cameraSelect').disabled = true;
+      $('dot').classList.remove('live');
+      $('statusText').textContent = 'Stopping monitor...';
+      showViewerMessage('Stopping the local monitor...');
+
+      try {
+        await api('/api/shutdown', {method: 'POST', body: '{}'});
+        $('statusText').textContent = 'Monitor stopped';
+        showViewerMessage('Monitor stopped. You may now enable Privacy Mode.');
+      } catch (error) {
+        $('statusText').textContent = 'Could not stop monitor';
+        showViewerMessage(error.message);
+        $('reload').disabled = false;
+        $('restart').disabled = false;
+        $('cameraSelect').disabled = false;
+        setBusy($('stop'), false);
+      }
+    });
+
+    refreshStatus();
+    setInterval(refreshStatus, 3000);
+  </script>
+</body>
+</html>

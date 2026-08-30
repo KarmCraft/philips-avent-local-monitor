@@ -1,0 +1,48 @@
+diff --git a/avent-webrtc-bridge/main.go b/avent-webrtc-bridge/main.go
+index ab29a13..18e1fdd 100644
+--- a/avent-webrtc-bridge/main.go
++++ b/avent-webrtc-bridge/main.go
+@@ -8,7 +8,7 @@ import (
+ 	"avent-webrtc-bridge/pkg/core"
+ )
+ 
+-const VERSION = "0.0.6"
++var VERSION = "0.0.6"
+ 
+ func main() {
+ 	core.InitLogger()
+diff --git a/avent-webrtc-bridge/pkg/rtsp/server.go b/avent-webrtc-bridge/pkg/rtsp/server.go
+index 7dda00e..5a2ecb3 100644
+--- a/avent-webrtc-bridge/pkg/rtsp/server.go
++++ b/avent-webrtc-bridge/pkg/rtsp/server.go
+@@ -23,7 +23,7 @@ import (
+ func reuseAddrControl(network, address string, c syscall.RawConn) error {
+ 	var sockErr error
+ 	if err := c.Control(func(fd uintptr) {
+-		sockErr = syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1)
++		sockErr = syscall.SetsockoptInt(syscall.Handle(fd), syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1)
+ 	}); err != nil {
+ 		return err
+ 	}
+@@ -131,7 +131,7 @@ func (s *RTSPServer) Start() error {
+ 	}
+ 
+ 	lc := net.ListenConfig{Control: reuseAddrControl}
+-	listener, err := lc.Listen(s.ctx, "tcp", fmt.Sprintf(":%d", s.port))
++	listener, err := lc.Listen(s.ctx, "tcp", fmt.Sprintf("127.0.0.1:%d", s.port))
+ 	if err != nil {
+ 		return fmt.Errorf("failed to listen on port %d: %v", s.port, err)
+ 	}
+diff --git a/avent-webrtc-bridge/pkg/rtsp/server_test.go b/avent-webrtc-bridge/pkg/rtsp/server_test.go
+index c40dc77..cdb09c0 100644
+--- a/avent-webrtc-bridge/pkg/rtsp/server_test.go
++++ b/avent-webrtc-bridge/pkg/rtsp/server_test.go
+@@ -31,7 +31,7 @@ func TestReuseAddrControlSetsSockopt(t *testing.T) {
+ 	var opt int
+ 	var ctlErr error
+ 	if err := raw.Control(func(fd uintptr) {
+-		opt, ctlErr = syscall.GetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_REUSEADDR)
++		opt, ctlErr = syscall.GetsockoptInt(syscall.Handle(fd), syscall.SOL_SOCKET, syscall.SO_REUSEADDR)
+ 	}); err != nil {
+ 		t.Fatalf("control: %v", err)
+ 	}

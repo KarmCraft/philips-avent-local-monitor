@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+
+# Runtime dependencies and state
+bin/
+config/
+data/
+logs/
+session.json
+capture-settings.json
+*.log
+*.pid
+
+# Credentials and local configuration
+.env
+.env.*
+*.secret
+
+# Captures
+Video/
+Pictures/
+*.mkv
+*.mp4
+*.jpg
+*.jpeg
+
+# Editors and operating systems
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+Desktop.ini
