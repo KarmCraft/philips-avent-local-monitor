@@ -1,6 +1,10 @@
 import unittest
+import sys
 from pathlib import Path
 from unittest.mock import Mock
+
+SRC_ROOT = Path(__file__).parents[1] / "src"
+sys.path.insert(0, str(SRC_ROOT))
 
 from app import (
     Services,
@@ -47,13 +51,13 @@ class AventMonitorTests(unittest.TestCase):
         self.assertFalse(validate_secret(complete))
 
     def test_index_exposes_confirmed_shutdown_control(self):
-        index = (Path(__file__).parents[1] / "web" / "index.html").read_text(encoding="utf-8")
+        index = (SRC_ROOT / "web" / "index.html").read_text(encoding="utf-8")
         self.assertIn('id="stop">Stop monitor</button>', index)
         self.assertIn("window.confirm", index)
         self.assertIn("api('/api/shutdown'", index)
 
     def test_index_exposes_capture_controls(self):
-        index = (Path(__file__).parents[1] / "web" / "index.html").read_text(encoding="utf-8")
+        index = (SRC_ROOT / "web" / "index.html").read_text(encoding="utf-8")
         self.assertIn('id="capturePath"', index)
         self.assertIn('id="snapshotInterval"', index)
         self.assertIn("api('/api/capture/start'", index)
@@ -66,7 +70,7 @@ class AventMonitorTests(unittest.TestCase):
         self.assertIn("api('/api/daily-video/settings'", index)
 
     def test_index_uses_refined_self_hosted_design(self):
-        index = (Path(__file__).parents[1] / "web" / "index.html").read_text(encoding="utf-8")
+        index = (SRC_ROOT / "web" / "index.html").read_text(encoding="utf-8")
         self.assertIn('font-family: "Playfair Display"', index)
         self.assertIn('/fonts/PlayfairDisplay-Variable.ttf', index)
         self.assertIn('/fonts/JetBrainsMono-Variable.ttf', index)
@@ -96,7 +100,7 @@ class AventMonitorTests(unittest.TestCase):
         rotate_plain_log(path)
 
     def test_task_installer_uses_sign_in_and_durable_recovery(self):
-        installer = (Path(__file__).parents[1] / "Install-AventMonitorTask.ps1").read_text(
+        installer = (SRC_ROOT / "Install-AventMonitorTask.ps1").read_text(
             encoding="utf-8"
         )
         self.assertIn("New-ScheduledTaskTrigger -AtLogOn", installer)
@@ -104,7 +108,7 @@ class AventMonitorTests(unittest.TestCase):
         self.assertIn("-RestartInterval (New-TimeSpan -Minutes 1)", installer)
         self.assertIn("-MultipleInstances IgnoreNew", installer)
 
-        launcher = (Path(__file__).parents[1] / "Start-AventMonitor.ps1").read_text(
+        launcher = (SRC_ROOT / "Start-AventMonitor.ps1").read_text(
             encoding="utf-8"
         )
         self.assertIn("while ($true)", launcher)

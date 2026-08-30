@@ -12,9 +12,10 @@ if (-not $Port) {
 if ($Port -lt 1 -or $Port -gt 65535) {
     throw 'Port must be between 1 and 65535.'
 }
-$root = Split-Path -Parent $MyInvocation.MyCommand.Path
-$python = Join-Path $root '.venv\Scripts\python.exe'
-$app = Join-Path $root 'app.py'
+$sourceRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
+$projectRoot = Split-Path -Parent $sourceRoot
+$python = Join-Path $projectRoot '.venv\Scripts\python.exe'
+$app = Join-Path $sourceRoot 'app.py'
 $defaultStateRoot = Join-Path $env:LOCALAPPDATA 'AventMonitor'
 if (-not $StateRoot) {
     $StateRoot = if ($env:AVENT_STATE_ROOT) { $env:AVENT_STATE_ROOT } else { $defaultStateRoot }

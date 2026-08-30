@@ -32,7 +32,7 @@ committed here.
 The web interface includes the variable font files for Playfair Display and
 JetBrains Mono. Each font is distributed under the SIL Open Font License 1.1.
 The complete license texts are stored beside the corresponding files in
-`web/fonts`.
+`src/web/fonts`.
 
 ## Philips Avent and Tuya
 
