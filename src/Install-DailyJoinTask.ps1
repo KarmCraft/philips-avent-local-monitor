@@ -7,8 +7,9 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'TaskSupport.ps1')
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
-$joinScript = Join-Path $root 'Join-AventDailyVideos.ps1'
+$joinScript = Join-Path $root 'Invoke-DailyJoin.ps1'
 $pwshCommand = Get-Command 'pwsh.exe' -ErrorAction SilentlyContinue
 if (-not $pwshCommand) {
     throw 'PowerShell 7 is required. Install it and ensure pwsh.exe is on PATH.'
@@ -24,16 +25,15 @@ if (-not $StateRoot) {
     }
 }
 
-$settingsPath = Join-Path $StateRoot 'data\capture-settings.json'
+$StateRoot = Resolve-AventStateRoot $StateRoot
 $currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
 $runAt = [datetime]::ParseExact($At, 'HH:mm', [System.Globalization.CultureInfo]::InvariantCulture)
-$arguments = "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$joinScript`" -UseWebsiteSettings -SettingsPath `"$settingsPath`""
-
-$action = New-ScheduledTaskAction `
-    -Execute $pwshCommand.Source `
-    -Argument $arguments `
-    -WorkingDirectory $root
-$trigger = New-ScheduledTaskTrigger -Daily -At $runAt
+$action = New-AventHiddenTaskAction -StateRoot $StateRoot -Name 'daily-join' `
+    -Script $joinScript -Parameters @('-StateRoot', $StateRoot)
+$trigger = @(
+    New-ScheduledTaskTrigger -Daily -At $runAt
+    New-ScheduledTaskTrigger -AtLogOn -User $currentUser
+)
 $principal = New-ScheduledTaskPrincipal `
     -UserId $currentUser `
     -LogonType Interactive `
@@ -42,8 +42,9 @@ $settings = New-ScheduledTaskSettingsSet `
     -AllowStartIfOnBatteries `
     -DontStopIfGoingOnBatteries `
     -StartWhenAvailable `
+    -ExecutionTimeLimit ([TimeSpan]::Zero) `
     -MultipleInstances IgnoreNew `
-    -RestartCount 3 `
+    -RestartCount 8 `
     -RestartInterval (New-TimeSpan -Minutes 15)
 
 Register-ScheduledTask `
@@ -55,4 +56,4 @@ Register-ScheduledTask `
     -Description 'Joins completed Philips Avent recording fragments into one validated daily video.' `
     -Force | Out-Null
 
-Write-Output "Installed $TaskName to run daily at $At for $currentUser."
+Write-Output "Installed ${TaskName}: catch up completed days at $At and sign-in for $currentUser; retry failures every 15 minutes (8 attempts)."

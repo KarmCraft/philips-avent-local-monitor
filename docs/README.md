@@ -102,15 +102,32 @@ folder. The website's **Join daily video fragments** and **Delete fragments**
 settings are honored with `-UseWebsiteSettings`. Source deletion happens only
 after the joined MKV and its JSON manifest pass validation.
 
-To run the join automatically at 00:30 each day:
+To run completed-day catch-up automatically at 00:30 each day and at sign-in:
 
 ```powershell
 .\src\Install-DailyJoinTask.ps1
 ```
 
-Both Task Scheduler installers use the current Windows user with limited
-privileges. This allows access to that user's session file and mapped or UNC
-capture location.
+The task runs `Invoke-DailyJoin.ps1`, which calls the standalone join script with
+`-UseWebsiteSettings -AllPastDays`. It excludes today's date, retries failures
+eight times at 15-minute intervals, and writes `logs/daily-join.log` under the
+state root. Missed dates are reconsidered at the next run. An exclusive file
+handle at `<capture path>\Video\.avent-daily-join.lock` prevents overlapping
+joins even when started manually. This empty lock file remains intentionally;
+ownership is released when the process exits, not by deleting the file. An
+unavailable share or invalid fragment fails visibly and retains its sources.
+
+Both installers create independent tasks in Windows' built-in Task Scheduler;
+there is no shared job registry, custom scheduler state, or running-agent
+dependency. Both use a windowless Windows Script Host launcher and the current
+Windows user with limited privileges. The user must be signed in, with access to
+the session file and capture location. Prefer a UNC path over a mapped drive.
+At startup, a temporarily unavailable network share is handled by join retries.
+
+The README agent prompt asks for a destination (default Windows Videos folder
+plus `AventMonitor`), daily joining (yes), and post-validation deletion (yes).
+These are explicit installation choices, not a migration that silently enables
+deletion on existing installations. A missing deletion setting still means no.
 
 ## Start automatically at Windows sign-in
 
@@ -121,6 +138,20 @@ capture location.
 The launcher restarts unexpected website failures. An intentional **Stop
 monitor** exits cleanly and remains stopped until it is started manually or the
 user signs in again.
+
+Start the registered monitor task from Task Scheduler (or `Start-ScheduledTask
+-TaskName AventLocalMonitor`) rather than leaving another launch terminal open.
+The website reserves its loopback port before starting child services; a duplicate
+launch exits without modifying the existing owner's runtime files or media.
+If another application owns that port, it is left untouched: resolve the conflict
+or choose another website port. The bridge/media ports still allow only one
+monitor installation on a host.
+
+To migrate from a shared scheduler, first install and verify these two native
+tasks with the existing state root and secret-file path. Disable only the old
+monitor/join entries, gracefully stop the old monitor stack, and start the new
+monitor task. Preserve session files, capture settings and footage. Do not run
+both join schedules. Repairing unrelated shared scheduler state is not required.
 
 Custom task names, state paths, and the website port can be supplied as script
 parameters. Run `Get-Help .\src\Install-AventMonitorTask.ps1 -Detailed` to inspect

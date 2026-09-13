@@ -15,6 +15,10 @@ if ($Port -lt 1 -or $Port -gt 65535) {
 $sourceRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $projectRoot = Split-Path -Parent $sourceRoot
 $python = Join-Path $projectRoot '.venv\Scripts\python.exe'
+if (-not (Test-Path -LiteralPath $python)) {
+    # Also support a flat, existing deployment without moving its environment.
+    $python = Join-Path $sourceRoot '.venv\Scripts\python.exe'
+}
 $app = Join-Path $sourceRoot 'app.py'
 $defaultStateRoot = Join-Path $env:LOCALAPPDATA 'AventMonitor'
 if (-not $StateRoot) {

@@ -7,6 +7,7 @@ SRC_ROOT = Path(__file__).parents[1] / "src"
 sys.path.insert(0, str(SRC_ROOT))
 
 from app import (
+    bind_site_socket,
     Services,
     media_paths,
     render_mediamtx_config,
@@ -17,6 +18,15 @@ from app import (
 
 
 class AventMonitorTests(unittest.TestCase):
+    def test_port_reserved_before_duplicate_can_start(self):
+        listener = bind_site_socket(0)
+        try:
+            self.assertEqual(listener.getsockname()[0], "127.0.0.1")
+            with self.assertRaises(OSError):
+                bind_site_socket(listener.getsockname()[1])
+        finally:
+            listener.close()
+
     def test_sanitize_path_matches_upstream_contract(self):
         self.assertEqual(sanitize_rtsp_path("Baby Room / Left", "id1"), "Baby_Room___Left")
         self.assertEqual(sanitize_rtsp_path("", "id1"), "id1")

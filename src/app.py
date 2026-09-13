@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import errno
 import json
 import logging
 import os
 import re
+import socket
 import subprocess
 import sys
 import threading
@@ -668,14 +670,37 @@ def create_app() -> web.Application:
     return app
 
 
+def bind_site_socket(port: int) -> socket.socket:
+    """Reserve the website before touching runtime files or starting media."""
+    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        if os.name == "nt":
+            listener.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        listener.bind((SITE_HOST, port))
+        listener.listen(socket.SOMAXCONN)
+        listener.setblocking(False)
+        return listener
+    except BaseException:
+        listener.close()
+        raise
+
+
 if __name__ == "__main__":
+    try:
+        site_socket = bind_site_socket(SITE_PORT)
+    except OSError as error:
+        if error.errno == errno.EADDRINUSE or getattr(error, "winerror", None) == 10048:
+            LOGGER.warning("Website port is already in use; leaving its owner untouched and exiting.")
+            sys.exit(0)
+        raise
     DATA_ROOT.mkdir(parents=True, exist_ok=True)
     configure_file_logging()
     PID_FILE.write_text(str(os.getpid()), encoding="ascii")
     try:
-        web.run_app(create_app(), host=SITE_HOST, port=SITE_PORT, print=None)
+        web.run_app(create_app(), sock=site_socket, print=None)
     except BaseException:
         LOGGER.exception("Avent website terminated unexpectedly")
         raise
     finally:
+        site_socket.close()
         PID_FILE.unlink(missing_ok=True)

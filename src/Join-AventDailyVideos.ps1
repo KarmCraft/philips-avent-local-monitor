@@ -642,6 +642,20 @@ if (-not (Test-Path -LiteralPath $VideoRoot -PathType Container)) {
 }
 
 $resolvedVideoRoot = (Resolve-Path -LiteralPath $VideoRoot).ProviderPath
+# The persistent empty file is intentional. OS/SMB handle ownership, not file
+# existence, is the lock; crashes release it without a stale PID to repair.
+$joinLock = $null
+try {
+    $joinLock = [System.IO.File]::Open(
+        (Join-Path $resolvedVideoRoot '.avent-daily-join.lock'),
+        [System.IO.FileMode]::OpenOrCreate,
+        [System.IO.FileAccess]::ReadWrite,
+        [System.IO.FileShare]::None
+    )
+} catch [System.IO.IOException] {
+    throw 'Cannot acquire daily-join ownership. Another join may be running, or storage is unavailable; retry later.'
+}
+try {
 $dailyDirectory = Join-Path $resolvedVideoRoot "Daily"
 New-Item -ItemType Directory -Path $dailyDirectory -Force | Out-Null
 
@@ -701,4 +715,7 @@ foreach ($dateKey in $dateKeys) {
 
 if ($failures.Count -gt 0) {
     throw "Daily join failed for $($failures.Count) date(s): $($failures -join '; ')"
+}
+} finally {
+    if ($joinLock) { $joinLock.Dispose() }
 }

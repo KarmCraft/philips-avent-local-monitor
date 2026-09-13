@@ -7,6 +7,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'TaskSupport.ps1')
 if (-not $Port) {
     $Port = if ($env:AVENT_SITE_PORT) { [int]$env:AVENT_SITE_PORT } else { 8090 }
 }
@@ -26,18 +27,14 @@ if (-not (Test-Path -LiteralPath $startScript)) {
     throw "The Avent start script is missing: $startScript"
 }
 
-$startArguments = @('-NoProfile', '-WindowStyle', 'Hidden', '-ExecutionPolicy', 'Bypass', '-File', "`"$startScript`"", '-Port', $Port)
-if ($StateRoot) {
-    $startArguments += @('-StateRoot', "`"$StateRoot`"")
-}
+$StateRoot = Resolve-AventStateRoot $StateRoot
+$startArguments = @('-Port', [string]$Port, '-StateRoot', $StateRoot)
 if ($SecretFile) {
-    $startArguments += @('-SecretFile', "`"$SecretFile`"")
+    $startArguments += @('-SecretFile', $SecretFile)
 }
 
-$action = New-ScheduledTaskAction `
-    -Execute $pwsh `
-    -Argument ($startArguments -join ' ') `
-    -WorkingDirectory $root
+$action = New-AventHiddenTaskAction -StateRoot $StateRoot -Name 'monitor' `
+    -Script $startScript -Parameters $startArguments
 $trigger = New-ScheduledTaskTrigger -AtLogOn -User $currentUser
 $principal = New-ScheduledTaskPrincipal `
     -UserId $currentUser `
