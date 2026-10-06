@@ -150,7 +150,8 @@ function Get-MediaInfo {
         [Parameter(Mandatory)]
         [string]$Path,
         [Parameter(Mandatory)]
-        [string]$Ffprobe
+        [string]$Ffprobe,
+        [switch]$AllowVideoEmpty
     )
 
     $result = Invoke-NativeProcess -Executable $Ffprobe -Arguments @(
@@ -174,10 +175,40 @@ function Get-MediaInfo {
         throw "ffprobe returned invalid JSON for '$([System.IO.Path]::GetFileName($Path))'."
     }
 
-    $streams = @($probe.streams)
+    $streamsProperty = $probe.PSObject.Properties["streams"]
+    if (-not $streamsProperty) {
+        throw "Media validation failed for '$([System.IO.Path]::GetFileName($Path))': no stream metadata."
+    }
+    $streams = @($streamsProperty.Value)
     $video = @($streams | Where-Object { $_.codec_type -eq "video" })
     $audio = @($streams | Where-Object { $_.codec_type -eq "audio" })
-    $durationProperty = $probe.format.PSObject.Properties["duration"]
+    $pixelFormatProperty = if ($video.Count -eq 1) { $video[0].PSObject.Properties["pix_fmt"] } else { $null }
+    if ($video.Count -eq 0 -or ($video.Count -eq 1 -and (-not $pixelFormatProperty -or -not $pixelFormatProperty.Value))) {
+        # Headers can advertise H.264 even when capture ended before its first
+        # video packet. Never discard a file that actually contains video.
+        $packetResult = Invoke-NativeProcess -Executable $Ffprobe -Arguments @(
+            "-v", "error", "-select_streams", "v", "-show_packets",
+            "-show_entries", "packet=size", "-of", "json", $Path
+        ) -TimeoutSeconds 300
+        if ($packetResult.ExitCode -ne 0) {
+            throw "Cannot check video packets for '$([System.IO.Path]::GetFileName($Path))'; original retained."
+        }
+        $packetProbe = $packetResult.Stdout | ConvertFrom-Json
+        $packetsProperty = $packetProbe.PSObject.Properties["packets"]
+        if (-not $packetsProperty) {
+            throw "Missing video packet report for '$([System.IO.Path]::GetFileName($Path))'; original retained."
+        }
+        if (@($packetsProperty.Value).Count -eq 0) {
+            if ($AllowVideoEmpty) {
+                return [pscustomobject]@{ VideoEmpty = $true }
+            }
+            throw "'$([System.IO.Path]::GetFileName($Path))' has no video packets."
+        }
+        throw "'$([System.IO.Path]::GetFileName($Path))' contains video packets but lacks readable video metadata; original retained for repair."
+    }
+
+    $formatProperty = $probe.PSObject.Properties["format"]
+    $durationProperty = if ($formatProperty) { $formatProperty.Value.PSObject.Properties["duration"] } else { $null }
     if ($durationProperty) {
         $duration = [double]::Parse(
             [string]$durationProperty.Value,
@@ -197,6 +228,19 @@ function Get-MediaInfo {
         throw "'$([System.IO.Path]::GetFileName($Path))' must contain exactly one readable video stream, one readable audio stream, and a positive duration."
     }
 
+    foreach ($required in @("codec_name", "width", "height")) {
+        $property = $video[0].PSObject.Properties[$required]
+        if (-not $property -or -not $property.Value) {
+            throw "'$([System.IO.Path]::GetFileName($Path))' lacks video $required; original retained."
+        }
+    }
+    foreach ($required in @("codec_name", "sample_rate", "channels")) {
+        $property = $audio[0].PSObject.Properties[$required]
+        if (-not $property -or -not $property.Value) {
+            throw "'$([System.IO.Path]::GetFileName($Path))' lacks audio $required; original retained."
+        }
+    }
+
     $channelLayoutProperty = $audio[0].PSObject.Properties["channel_layout"]
     $channelLayout = if ($channelLayoutProperty) {
         [string]$channelLayoutProperty.Value
@@ -206,7 +250,7 @@ function Get-MediaInfo {
 
     $signature = [ordered]@{
         videoCodec = [string]$video[0].codec_name
-        pixelFormat = [string]$video[0].pix_fmt
+        pixelFormat = [string]$pixelFormatProperty.Value
         audioCodec = [string]$audio[0].codec_name
         sampleRate = [string]$audio[0].sample_rate
         channels = [int]$audio[0].channels
@@ -214,11 +258,46 @@ function Get-MediaInfo {
     }
 
     return [pscustomobject]@{
+        VideoEmpty = $false
         Duration = $duration
         Width = [int]$video[0].width
         Height = [int]$video[0].height
         Signature = ($signature | ConvertTo-Json -Compress)
     }
+}
+
+function Preserve-VideoEmptyFragment {
+    param(
+        [System.IO.FileInfo]$Segment,
+        [string]$Root,
+        [string]$DateKey
+    )
+
+    $relativePath = "Incomplete/$DateKey/$($Segment.Name)"
+    $destination = Join-Path $Root $relativePath
+    if (Test-Path -LiteralPath $destination) {
+        throw "Preservation destination already exists for '$($Segment.Name)'; original retained."
+    }
+    $hash = (Get-FileHash -LiteralPath $Segment.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+    $record = [ordered]@{
+        name = $Segment.Name
+        length = [long]$Segment.Length
+        lastWriteTimeUtc = $Segment.LastWriteTimeUtc.ToString("o")
+        sha256 = $hash
+        preservedFile = $relativePath
+        reason = "No video packets; original container and any audio preserved."
+    }
+    New-Item -ItemType Directory -Path (Split-Path -Parent $destination) -Force | Out-Null
+    # Persist evidence before moving. A failed join or interrupted host retains
+    # the complete original and the next run can recover its preservation record.
+    Save-ManifestSafely -Manifest $record -Path "$destination.json"
+    $current = Get-Item -LiteralPath $Segment.FullName
+    if ($current.Length -ne $record.length -or $current.LastWriteTimeUtc.Ticks -ne $Segment.LastWriteTimeUtc.Ticks -or
+        (Get-FileHash -LiteralPath $Segment.FullName -Algorithm SHA256).Hash.ToLowerInvariant() -ne $hash) {
+        throw "'$($Segment.Name)' changed before preservation; original retained."
+    }
+    Move-Item -LiteralPath $Segment.FullName -Destination $destination
+    [Console]::Error.WriteLine("[$((Get-Date).ToString('o'))] [WARN] Preserved video-empty '$($Segment.Name)' at '$relativePath'.")
 }
 
 function Get-SourceFingerprint {
@@ -484,8 +563,14 @@ function Join-OneDay {
     $expectedDuration = 0.0
     $expectedSignature = $null
     $dimensions = [System.Collections.Generic.HashSet[string]]::new()
+    $validSegments = [System.Collections.Generic.List[object]]::new()
     foreach ($segment in $segments) {
-        $media = Get-MediaInfo -Path $segment.FullName -Ffprobe $Ffprobe
+        $media = Get-MediaInfo -Path $segment.FullName -Ffprobe $Ffprobe -AllowVideoEmpty
+        if ($media.VideoEmpty) {
+            Preserve-VideoEmptyFragment -Segment $segment -Root $Root -DateKey $DateKey
+            continue
+        }
+        $validSegments.Add($segment)
         [void]$dimensions.Add("$($media.Width)x$($media.Height)")
         if ($null -eq $expectedSignature) {
             $expectedSignature = $media.Signature
@@ -494,6 +579,30 @@ function Join-OneDay {
         }
         $expectedDuration += $media.Duration
     }
+
+    $segments = @($validSegments.ToArray())
+    if ($segments.Count -eq 0) {
+        Write-JoinLog "No video fragments for $DateKey; originals preserved under Incomplete/$DateKey; no daily video created." "WARN"
+        return [pscustomobject]@{ Date = $DateKey; Status = "NoVideoFragments"; Output = $null }
+    }
+    $sourceRecords = @(
+        foreach ($segment in $segments) {
+            [ordered]@{
+                name = $segment.Name
+                length = [long]$segment.Length
+                lastWriteTimeUtc = $segment.LastWriteTimeUtc.ToString("o")
+            }
+        }
+    )
+    $fingerprint = Get-SourceFingerprint -Sources $sourceRecords
+    $preservationRoot = Join-Path $Root "Incomplete/$DateKey"
+    $preservedRecords = @(
+        if (Test-Path -LiteralPath $preservationRoot) {
+            Get-ChildItem -LiteralPath $preservationRoot -File -Filter 'BabyMonitor_*.mkv.json' |
+                Where-Object { Test-Path -LiteralPath $_.FullName.Substring(0, $_.FullName.Length - 5) -PathType Leaf } |
+                Sort-Object Name | ForEach-Object { Get-Content -LiteralPath $_.FullName -Raw | ConvertFrom-Json }
+        }
+    )
 
     if ($dimensions.Count -gt 1) {
         Write-JoinLog "Source resolution changes within $DateKey ($(@($dimensions) -join ', ')); compatible H.264 parameter changes will be preserved." "WARN"
@@ -554,7 +663,7 @@ function Join-OneDay {
         Publish-FileSafely -TemporaryPath $partialPath -FinalPath $finalPath
 
         $manifest = [ordered]@{
-            schemaVersion = 2
+            schemaVersion = 3
             date = $DateKey
             createdAt = (Get-Date).ToString("o")
             outputFile = [System.IO.Path]::GetFileName($finalPath)
@@ -564,6 +673,7 @@ function Join-OneDay {
             sourceDurationSeconds = [Math]::Round($expectedDuration, 3)
             sourceFingerprint = $fingerprint
             sources = $sourceRecords
+            preservedVideoEmptyFragments = $preservedRecords
             sourceFragmentsDeletionRequested = [bool]$DeleteSources
             sourceFragmentsDeleted = $false
         }

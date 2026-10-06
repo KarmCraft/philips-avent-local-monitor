@@ -30,6 +30,10 @@ configuration, recording, privacy, and development documentation lives in
   days at sign-in and runs daily, with retries and overlap protection. The agent
   setup asks whether to join daily and delete fragments (both recommended defaults:
   yes); deletion runs only after the joined video and manifest pass validation.
+  Fragments with no video packets are preserved intact, including any audio,
+  under `Video/Incomplete/<date>` instead of blocking the whole day. The daily
+  manifest lists these omissions; damaged files containing video still fail
+  visibly and are retained for repair.
 
 The destination is write-tested before capture starts. **Stop capture** safely
 finalizes the current output and pauses automatic restart for that run, while

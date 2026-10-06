@@ -116,6 +116,14 @@ handle at `<capture path>\Video\.avent-daily-join.lock` prevents overlapping
 joins even when started manually. This empty lock file remains intentionally;
 ownership is released when the process exits, not by deleting the file. An
 unavailable share or invalid fragment fails visibly and retains its sources.
+If a fragment lacks readable video metadata, the joiner checks its video
+packets. A confirmed video-empty fragment is moved intact (including any audio)
+to `Video/Incomplete/<date>`, with a JSON sidecar containing its SHA-256 and
+reason. Valid fragments can then be joined; the daily manifest lists the
+preserved omissions. Preservation never overwrites an existing file, and these
+originals are excluded from fragment deletion. A day containing only video-empty
+fragments creates no daily video. Files with video packets but unreadable
+metadata still fail with their filename and remain available for repair.
 
 Both installers create independent tasks in Windows' built-in Task Scheduler;
 there is no shared job registry, custom scheduler state, or running-agent
