@@ -4,8 +4,8 @@ An unofficial, localhost-only Windows viewer and recorder for the Philips Avent
 Connected Babyphone `SCD953/26`.
 
 Application code and runtime assets live in [`src/`](src/). Detailed setup,
-configuration, recording, privacy, and development documentation lives in
-[`docs/README.md`](docs/README.md).
+configuration, recording, privacy, and development documentation lives in the
+[setup and operation guide](docs/SETUP.md).
 
 ## Features
 
@@ -57,7 +57,7 @@ Copy this prompt into your coding agent with the repository open:
 
 ```text
 Install and configure this whole Philips Avent Local Monitor app on my Windows
-machine. Read docs/README.md and docs/SECURITY.md first. Do not assume any
+machine. Read docs/SETUP.md and docs/SECURITY.md first. Do not assume any
 machine-specific paths, custom scheduler, Codex automation, or Home Assistant.
 
 Before configuring capture, ask me:
