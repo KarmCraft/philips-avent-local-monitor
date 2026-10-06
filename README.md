@@ -12,7 +12,9 @@ configuration, recording, privacy, and development documentation lives in the
 - **Local live view:** a resilient bridge and playback gateway serve the camera
   through a browser interface restricted to `127.0.0.1`. The page reports
   probing, offline, online, and recording states and remains available while the
-  baby unit is switched off.
+  baby unit is switched off. Live audio starts muted; a visible **Unmute / Mute**
+  button controls browser sound without reconnecting or affecting recorded audio.
+  Your sound choice survives stream recovery and video reloads within the page.
 - **Automatic video recording:** capture waits for a real video packet before
   starting. If the feed disappears, FFmpeg is allowed to finalize the current
   file; capture resumes automatically when video returns, without reloading the

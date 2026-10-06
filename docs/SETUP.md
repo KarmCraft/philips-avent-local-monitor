@@ -177,6 +177,21 @@ For stronger at-rest protection, create an EFS-encrypted directory for the
 session file and point `AVENT_SECRET_FILE` to it. The session JSON must remain
 readable by the Windows user that runs the scheduled task.
 
+## Live browser audio
+
+The live player receives video and audio through the existing local MediaMTX
+WebRTC gateway. Each new page starts muted so browsers can autoplay video. Click
+**Unmute** beside **Reload video** to listen, or **Mute** to silence the browser.
+The player's native controls also provide volume and fullscreen. The button is
+disabled until an audio track is available.
+
+Muting changes only browser playback: it never disables the camera microphone or
+removes audio from recordings. The page remembers your mute choice while the feed
+recovers or you reload the video. Refreshing the whole page starts muted again.
+If a browser blocks audible autoplay after a reconnect, playback falls back to
+muted and asks you to click **Unmute** again. Offline playback and closed tabs
+release their WebRTC reader and received tracks; automatic recording is independent.
+
 ## Privacy mode
 
 Closing the browser tab does not stop an armed recorder. Before enabling Philips
@@ -188,14 +203,17 @@ monitor, bridge, MediaMTX, and local website.
 
 ```powershell
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
+node --test tests/test_live_player.cjs
 & .\src\bin\mediamtx.exe --version
 & .\src\bin\avent-webrtc-bridge.exe --version
 ```
 
 The unit tests cover loopback bindings, setup and shutdown controls, capture
 settings, timestamp and metadata commands, feed-loss recovery, daily settings,
-and service recycling. CI runs the test suite and parses every PowerShell script
-on Windows.
+and service recycling. The browser-player tests use Node.js 20+ and cover mute,
+autoplay fallback, track cleanup, reader loading and reconnect behavior without a
+camera or microphone permission. CI runs both suites and parses every PowerShell
+script on Windows. Real audible playback still requires an online baby unit.
 
 ## Dependency provenance
 

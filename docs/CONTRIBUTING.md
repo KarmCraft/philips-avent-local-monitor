@@ -14,7 +14,12 @@ Thanks for helping improve the project.
 py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
+node --test tests/test_live_player.cjs
 ```
+
+The browser-player tests require Node.js 20+ for development/CI only, not for
+running the monitor. Use synthetic media for playback checks; never publish
+images, audio or logs from a real baby monitor.
 
 PowerShell scripts should parse without errors under PowerShell 7. Dependency
 updates must remain pinned and checksum-verified where an upstream release
