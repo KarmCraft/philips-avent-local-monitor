@@ -1,34 +1,14 @@
-# Philips Avent Local Monitor
+# Setup and operation
 
-An unofficial, localhost-only Windows viewer and recorder for the Philips Avent
-Connected Babyphone `SCD953/26`.
-
-The project turns the monitor's WebRTC stream into a local browser page and an
-RTSP source. It can automatically record timestamped video fragments, take
-metadata-tagged pictures, recover when the baby unit goes offline, and join a
-completed day's video fragments into one validated Matroska file.
+Installation, configuration, recording, and scheduling guidance for Philips
+Avent Local Monitor. See the [project README](../README.md) for features and the
+agent setup prompt.
 
 > [!IMPORTANT]
 > The website is local, but the camera connection is not necessarily local.
 > Philips/Tuya services are used for authentication and WebRTC signalling, and
 > encrypted media may traverse a Tuya TURN relay. This is not a zero-cloud or
 > offline camera integration.
-
-## Features
-
-- Browser interface restricted to `127.0.0.1`
-- Email MFA setup compatible with the Baby Monitor+ account flow
-- Resilient bridge, playback, and feed monitoring
-- Automatic recording whenever a real video packet is available
-- Graceful finalization and recovery when the baby unit is switched off
-- Ten-minute MKV fragments with a small burned-in local timestamp
-- Timed JPEG pictures with EXIF date, timezone, dimensions, maker, and model
-- Optional daily joining with validation and guarded fragment deletion
-- Windows sign-in autostart and daily-join Task Scheduler installers
-- Self-hosted fonts and no browser-side CDN dependencies
-
-The monitor model above is the verified target. Other models may share the
-protocol, but they have not been tested.
 
 ## How it works
 
@@ -45,6 +25,8 @@ Every local listener is explicitly bound to loopback. No router port forward or
 Windows firewall rule is required. The page has no login of its own and must not
 be exposed to the LAN or internet.
 
+The page serves fonts locally and has no browser-side CDN dependencies.
+
 ## Requirements
 
 - Windows 10 or 11 on AMD64
@@ -53,6 +35,9 @@ be exposed to the LAN or internet.
 - Git and Go for the one-time bridge build
 - FFmpeg and FFprobe on `PATH`, or their paths set through environment variables
 - A Philips Baby Monitor+ account with access to the monitor
+
+The tested monitor is the Philips Avent Connected Babyphone `SCD953/26`. Other
+models may share the protocol, but they have not been tested.
 
 The dependency installer builds aventproxy from a pinned commit and downloads a
 checksum-verified MediaMTX release. It does not install Python, Go, Git, or
@@ -132,8 +117,9 @@ Windows user with limited privileges. The user must be signed in, with access to
 the session file and capture location. Prefer a UNC path over a mapped drive.
 At startup, a temporarily unavailable network share is handled by join retries.
 
-The README agent prompt asks for a destination (default Windows Videos folder
-plus `AventMonitor`), daily joining (yes), and post-validation deletion (yes).
+The [agent setup prompt](../README.md#setup-prompt-for-agents) asks for a
+destination (default Windows Videos folder plus `AventMonitor`), daily joining
+(yes), and post-validation deletion (yes).
 These are explicit installation choices, not a migration that silently enables
 deletion on existing installations. A missing deletion setting still means no.
 
