@@ -64,12 +64,13 @@
     .panel { background: var(--surface); border-radius: var(--radius); overflow: hidden; box-shadow: 0 20px 55px rgb(0 0 0 / .24); }
     .panel + .panel { margin-top: 22px; }
     .viewer { aspect-ratio: 16 / 9; min-height: 220px; background: #030507; display: grid; place-items: center; box-shadow: inset 0 0 0 1px rgb(255 255 255 / .035); }
-    iframe { width: 100%; height: 100%; border: 0; background: #030507; }
-    .empty { display: grid; justify-items: center; gap: 16px; max-width: 40ch; padding: 36px; color: var(--ink-muted); text-align: center; line-height: 1.55; }
+    .viewer video { grid-area: 1 / 1; width: 100%; height: 100%; min-height: 0; object-fit: contain; background: #030507; }
+    .empty { grid-area: 1 / 1; z-index: 1; display: grid; justify-items: center; gap: 16px; max-width: 40ch; padding: 36px; background: #030507; color: var(--ink-muted); text-align: center; line-height: 1.55; pointer-events: none; }
     .empty::before { content: ""; width: 34px; height: 34px; border: 1px solid var(--line-strong); border-radius: 50%; box-shadow: inset 0 0 0 8px #030507; }
 
     .toolbar { display: grid; grid-template-columns: minmax(240px, 1fr) auto auto; align-items: center; gap: 12px; padding: 14px; background: var(--surface-raised); border-top: 1px solid var(--line); }
     .button-group { display: flex; flex-wrap: wrap; gap: 8px; }
+    .audio-status { padding: 0 14px 14px; background: var(--surface-raised); }
 
     button { min-height: 44px; border: 1px solid transparent; border-radius: 10px; padding: 10px 16px; background: var(--accent); color: var(--accent-ink); font-weight: 680; line-height: 1.15; cursor: pointer; transition: background-color .18s var(--ease), border-color .18s var(--ease), color .18s var(--ease), transform .18s var(--ease); }
     button:hover:not(:disabled) { background: var(--accent-hover); }
@@ -176,12 +177,14 @@
         <select id="cameraSelect" aria-label="Camera"></select>
         <div class="button-group">
           <button type="button" id="reload">Reload video</button>
+          <button type="button" class="secondary" id="mute" aria-label="Unmute live audio" disabled>Unmute</button>
           <button type="button" class="secondary" id="restart">Restart stream</button>
         </div>
         <div class="button-group">
           <button type="button" class="danger" id="stop">Stop monitor</button>
         </div>
       </div>
+      <p class="note audio-status" id="audioStatus" role="status" aria-live="polite">Waiting for live audio. Recordings keep their audio.</p>
     </section>
 
     <section class="panel" id="captureCard" hidden>
@@ -284,6 +287,10 @@
     let captureArmed = false;
     let latestFeed = null;
     let viewerLoadedFor = null;
+    let viewerReader = null;
+    let viewerGeneration = 0;
+    let viewerMuted = true;
+    let readerScriptPromise = null;
 
     async function api(path, options = {}) {
       const response = await fetch(path, {headers: {'Content-Type': 'application/json'}, ...options});
@@ -297,26 +304,134 @@
       button.setAttribute('aria-busy', String(busy));
     }
 
-    function showViewerMessage(message) {
-      const existingFrame = $('viewer').querySelector('iframe');
-      if (existingFrame) existingFrame.src = 'about:blank';
-      $('viewer').innerHTML = '';
+    function updateAudioControl(message = '') {
+      const video = $('viewer').querySelector('video');
+      const hasAudio = Boolean(video && video.srcObject && video.srcObject.getAudioTracks().some(track => track.readyState !== 'ended'));
+      $('mute').disabled = !hasAudio;
+      $('mute').textContent = viewerMuted ? 'Unmute' : 'Mute';
+      $('mute').setAttribute('aria-label', viewerMuted ? 'Unmute live audio' : 'Mute live audio');
+      $('audioStatus').textContent = message || (hasAudio
+        ? `Live audio is ${viewerMuted ? 'muted' : 'on'}. Recordings keep their audio.`
+        : 'Waiting for live audio. Recordings keep their audio.');
+    }
+
+    function clearVideo(video) {
+      if (!video) return;
+      video.pause();
+      if (video.srcObject) video.srcObject.getTracks().forEach(track => track.stop());
+      video.srcObject = null;
+    }
+
+    function closeViewer() {
+      viewerGeneration += 1;
+      if (viewerReader) viewerReader.close();
+      viewerReader = null;
+      clearVideo($('viewer').querySelector('video'));
       viewerLoadedFor = null;
+      updateAudioControl();
+    }
+
+    function setPlaybackMessage(message) {
+      const previous = $('viewer').querySelector('.empty');
+      if (previous) previous.remove();
+      if (!message) return;
       const empty = document.createElement('div');
       empty.className = 'empty';
       empty.textContent = message;
       $('viewer').appendChild(empty);
     }
 
-    function loadViewer(camera) {
-      if (!camera || (viewerLoadedFor === camera.viewer_url && $('viewer').querySelector('iframe'))) return;
+    function showViewerMessage(message) {
+      closeViewer();
       $('viewer').innerHTML = '';
-      const frame = document.createElement('iframe');
-      frame.src = camera.viewer_url;
-      frame.allow = 'autoplay; fullscreen';
-      frame.title = camera.name;
-      $('viewer').appendChild(frame);
+      setPlaybackMessage(message);
+    }
+
+    function loadReader(viewerUrl) {
+      if (typeof MediaMTXWebRTCReader !== 'undefined') return Promise.resolve(MediaMTXWebRTCReader);
+      if (!readerScriptPromise) {
+        readerScriptPromise = new Promise((resolve, reject) => {
+          const script = document.createElement('script');
+          script.src = new URL('reader.js', viewerUrl).href;
+          script.onload = () => {
+            script.remove();
+            if (typeof MediaMTXWebRTCReader === 'undefined') reject(new Error('Playback reader unavailable'));
+            else resolve(MediaMTXWebRTCReader);
+          };
+          script.onerror = () => {
+            script.remove();
+            reject(new Error('Could not load the local playback reader'));
+          };
+          document.head.appendChild(script);
+        }).catch(error => {
+          readerScriptPromise = null;
+          throw error;
+        });
+      }
+      return readerScriptPromise;
+    }
+
+    function playVideo(video, generation) {
+      video.play().catch(error => {
+        if (generation !== viewerGeneration || error.name !== 'NotAllowedError') return;
+        viewerMuted = true;
+        video.muted = true;
+        updateAudioControl('Browser blocked sound. Click Unmute to listen. Recordings keep their audio.');
+        video.play().catch(() => {});
+      });
+    }
+
+    async function loadViewer(camera, force = false) {
+      if (!camera || (!force && viewerLoadedFor === camera.viewer_url && $('viewer').querySelector('video'))) return;
+      closeViewer();
+      const generation = viewerGeneration;
+      $('viewer').innerHTML = '';
+      const video = document.createElement('video');
+      video.controls = true;
+      video.autoplay = true;
+      video.playsInline = true;
+      video.defaultMuted = true;
+      video.muted = viewerMuted;
+      video.setAttribute('aria-label', `${camera.name} live video`);
+      video.addEventListener('volumechange', () => {
+        if (generation !== viewerGeneration) return;
+        viewerMuted = video.muted || video.volume === 0;
+        updateAudioControl();
+      });
+      $('viewer').appendChild(video);
       viewerLoadedFor = camera.viewer_url;
+      setPlaybackMessage('Connecting live video...');
+      const viewerUrl = camera.viewer_url.replace(/\/+$/, '') + '/';
+      try {
+        const Reader = await loadReader(viewerUrl);
+        if (generation !== viewerGeneration) return;
+        viewerReader = new Reader({
+          url: new URL('whep', viewerUrl).href,
+          onError: () => {
+            if (generation !== viewerGeneration) return;
+            clearVideo(video);
+            updateAudioControl();
+            setPlaybackMessage('Live playback disconnected. Reconnecting automatically...');
+          },
+          onTrack: event => {
+            if (generation !== viewerGeneration) {
+              event.track.stop();
+              return;
+            }
+            const stream = event.streams[0] || video.srcObject || new MediaStream();
+            if (!stream.getTracks().includes(event.track)) stream.addTrack(event.track);
+            video.srcObject = stream;
+            event.track.addEventListener('ended', () => {
+              if (generation === viewerGeneration) updateAudioControl();
+            });
+            setPlaybackMessage('');
+            updateAudioControl();
+            playVideo(video, generation);
+          }
+        });
+      } catch (error) {
+        if (generation === viewerGeneration) showViewerMessage('Local playback unavailable. Retrying automatically...');
+      }
     }
 
     function capturePayload() {
@@ -448,9 +563,12 @@
             showViewerMessage(`Baby unit offline. Checking again automatically in ${data.feed.probe_interval_seconds} seconds.`);
           }
           $('reload').disabled = !videoAvailable;
+        } else {
+          showViewerMessage('Connect the baby monitor to start live playback.');
         }
       } catch (error) {
         $('statusText').textContent = 'Website service unavailable';
+        showViewerMessage('Local website unavailable. Reconnecting automatically...');
       }
     }
 
@@ -491,7 +609,16 @@
     });
 
     $('cameraSelect').addEventListener('change', event => loadViewer(cameras[Number(event.target.value)]));
-    $('reload').addEventListener('click', () => loadViewer(cameras[Number($('cameraSelect').value || 0)]));
+    $('reload').addEventListener('click', () => loadViewer(cameras[Number($('cameraSelect').value || 0)], true));
+    $('mute').addEventListener('click', () => {
+      const video = $('viewer').querySelector('video');
+      if (!video || $('mute').disabled) return;
+      viewerMuted = !(video.muted || video.volume === 0);
+      video.muted = viewerMuted;
+      if (!viewerMuted && video.volume === 0) video.volume = 1;
+      updateAudioControl();
+      playVideo(video, viewerGeneration);
+    });
     $('restart').addEventListener('click', async () => {
       setBusy($('restart'), true);
       try {
@@ -586,6 +713,8 @@
       }
     });
 
+    window.addEventListener('pagehide', closeViewer);
+    window.addEventListener('pageshow', () => refreshStatus());
     refreshStatus();
     setInterval(refreshStatus, 3000);
   </script>
