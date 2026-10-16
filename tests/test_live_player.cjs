@@ -6,7 +6,7 @@ const { test } = require('node:test');
 
 const html = fs.readFileSync(path.join(__dirname, '../src/web/index.html'), 'utf8');
 const script = html.match(/<script>([\s\S]*?)<\/script>/)[1];
-const camera = { name: 'Test monitor', viewer_url: 'http://127.0.0.1:8889/baby' };
+const camera = { name: 'Test monitor', alias: 'baby', viewer_url: 'http://127.0.0.1:8889/baby' };
 const flush = () => new Promise(resolve => setImmediate(resolve));
 
 // Exercise the actual page script, with only browser/media/network boundaries faked.
@@ -23,7 +23,12 @@ class Element {
     this.srcObject = null;
     this.playCalls = 0;
     this.pauseCalls = 0;
-    this.classList = { toggle() {}, remove() {} };
+    this.style = {};
+    this.classes = new Set();
+    this.classList = {
+      toggle: (name, on) => on ? this.classes.add(name) : this.classes.delete(name),
+      remove: (...names) => names.forEach(name => this.classes.delete(name))
+    };
   }
   set innerHTML(value) { this.children = []; }
   appendChild(child) { child.parent = this; this.children.push(child); }
@@ -34,9 +39,11 @@ class Element {
   }
   setAttribute(name, value) { this.attributes[name] = value; }
   addEventListener(name, callback) { (this.listeners[name] ||= []).push(callback); }
-  emit(name) { for (const callback of this.listeners[name] || []) callback({ target: this }); }
+  emit(name) { return Promise.all((this.listeners[name] || []).map(callback => callback({ target: this }))); }
   play() { this.playCalls += 1; return this.playResult?.() || Promise.resolve(); }
   pause() { this.pauseCalls += 1; }
+  getContext() { return { drawImage: (...args) => { this.drawn = args; } }; }
+  toBlob(callback, type) { callback(new Blob(['synthetic JPEG'], { type })); }
 }
 
 function track(kind) {
@@ -52,6 +59,7 @@ class Stream {
   constructor(tracks = []) { this.tracks = tracks; }
   getTracks() { return this.tracks; }
   getAudioTracks() { return this.tracks.filter(item => item.kind === 'audio'); }
+  getVideoTracks() { return this.tracks.filter(item => item.kind === 'video'); }
   addTrack(item) { this.tracks.push(item); }
 }
 
@@ -69,18 +77,26 @@ function fixture({ lazyReader = false } = {}) {
   }
   const window = new Element('window');
   const requests = [];
+  const uploads = [];
+  const document = new Element('document');
+  document.getElementById = id => nodes[id];
+  document.createElement = tag => new Element(tag);
+  document.head = head;
   const context = vm.createContext({
-    document: { getElementById: id => nodes[id], createElement: tag => new Element(tag), head },
-    window, URL, MediaStream: Stream, setInterval() {}, setTimeout,
-    fetch: async url => {
+    document, window, URL, Blob, MediaStream: Stream, setInterval() {}, setTimeout,
+    fetch: async (url, options) => {
       requests.push(url);
+      if (url.startsWith('/api/screenshot')) {
+        uploads.push({ url, ...options });
+        return { ok: true, json: async () => ({ ok: true, path: 'C:\\Pictures\\Screenshot_test.jpg' }) };
+      }
       return { ok: true, json: async () => ({ ok: true, configured: false, services: {}, feed: {} }) };
     },
     ...(lazyReader ? {} : { MediaMTXWebRTCReader: Reader })
   });
   vm.runInContext(script, context);
   return {
-    nodes, readers, context, head, window, requests, Reader,
+    nodes, readers, context, head, window, document, requests, uploads, Reader,
     async start(force = false) {
       await flush(); // Let the initial status request finish before starting a test feed.
       await context.loadViewer(camera, force);
@@ -263,4 +279,91 @@ test('streamless track events still attach live audio', async () => {
   f.readers[0].receive(null, audio);
   assert.deepEqual(video.srcObject.getAudioTracks(), [audio]);
   assert.equal(f.nodes.mute.disabled, false);
+});
+
+async function screenshotFixture() {
+  const f = fixture();
+  const { video } = await f.audio();
+  vm.runInContext(`latestFeed = {video_available: true}; cameras = [${JSON.stringify(camera)}];`, f.context);
+  video.readyState = 2;
+  video.videoWidth = 1280;
+  video.videoHeight = 720;
+  await video.emit('loadeddata');
+  return { f, video };
+}
+
+test('screenshot uploads the displayed frame once without restarting capture or reader', async () => {
+  const { f } = await screenshotFixture();
+  assert.equal(f.nodes.screenshot.disabled, false);
+  await f.nodes.screenshot.emit('click');
+  assert.equal(f.uploads.length, 1);
+  assert.equal(f.uploads[0].url, '/api/screenshot?camera=baby');
+  assert.equal(f.uploads[0].headers['Content-Type'], 'image/jpeg');
+  assert.equal(f.uploads[0].body.type, 'image/jpeg');
+  assert.match(f.nodes.screenshotMessage.textContent, /Screenshot saved: C:\\Pictures/);
+  assert.equal(f.readers.length, 1);
+  assert.equal(f.readers[0].closeCalls, 0);
+  assert.equal(f.nodes.screenshot.disabled, false);
+  assert.ok(f.requests.every(url => url === '/api/status' || url.startsWith('/api/screenshot')));
+});
+
+test('screenshot stays disabled before a decoded frame and while offline', async () => {
+  const { f, video } = await screenshotFixture();
+  video.readyState = 1;
+  f.context.updateScreenshotControl();
+  assert.equal(f.nodes.screenshot.disabled, true);
+  await f.nodes.screenshot.emit('click');
+  assert.equal(f.uploads.length, 0);
+  video.readyState = 2;
+  f.context.showViewerMessage('Offline');
+  assert.equal(f.nodes.screenshot.disabled, true);
+});
+
+test('an ended video track cannot be captured as a stale live frame', async () => {
+  const { f, video } = await screenshotFixture();
+  video.srcObject.getVideoTracks()[0].end();
+  assert.equal(f.nodes.screenshot.disabled, true);
+  await f.nodes.screenshot.emit('click');
+  assert.equal(f.uploads.length, 0);
+});
+
+test('screenshot save rejects double clicks and restores controls on destination error', async () => {
+  const { f } = await screenshotFixture();
+  let finish;
+  f.context.fetch = () => new Promise(resolve => { finish = resolve; });
+  const saving = f.nodes.screenshot.emit('click');
+  await flush();
+  assert.equal(f.nodes.screenshot.disabled, true);
+  assert.equal(f.nodes.screenshot.attributes['aria-busy'], 'true');
+  await f.nodes.screenshot.emit('click');
+  finish({ ok: false, json: async () => ({ ok: false, error: 'Picture folder unavailable' }) });
+  await saving;
+  assert.match(f.nodes.screenshotMessage.textContent, /Screenshot not saved: Picture folder unavailable/);
+  assert.equal(f.nodes.screenshot.disabled, false);
+  assert.equal(f.nodes.screenshot.attributes['aria-busy'], 'false');
+});
+
+test('recording indicator is empty offline, green online, red only for active video recording', () => {
+  const f = fixture();
+  f.context.updateMonitorIndicator(false, { running: true, mode: 'video' });
+  assert.equal(f.nodes.dot.attributes['data-state'], 'offline');
+  assert.equal(f.nodes.dot.classes.size, 0);
+  f.context.updateMonitorIndicator(true, { running: false, mode: 'video' });
+  assert.deepEqual([...f.nodes.dot.classes], ['live']);
+  f.context.updateMonitorIndicator(true, { running: true, mode: 'video' });
+  assert.deepEqual([...f.nodes.dot.classes], ['recording']);
+  f.context.updateMonitorIndicator(true, { running: true, mode: 'snapshots' });
+  assert.deepEqual([...f.nodes.dot.classes], ['live']);
+});
+
+test('recording blink has reduced-motion alternative and pauses when the page is hidden', () => {
+  const f = fixture();
+  assert.match(html, /\.dot\.recording[^}]*animation: recording-blink/);
+  assert.match(html, /prefers-reduced-motion: reduce[\s\S]*\.dot\.recording \{ animation: none/);
+  f.document.hidden = true;
+  f.document.emit('visibilitychange');
+  assert.equal(f.nodes.dot.style.animationPlayState, 'paused');
+  f.document.hidden = false;
+  f.document.emit('visibilitychange');
+  assert.equal(f.nodes.dot.style.animationPlayState, 'running');
 });

@@ -177,6 +177,32 @@ For stronger at-rest protection, create an EFS-encrypted directory for the
 session file and point `AVENT_SECRET_FILE` to it. The session JSON must remain
 readable by the Windows user that runs the scheduled task.
 
+## Live view, screenshots and recording status
+
+On a 1440p desktop (2560×1440, 100% browser zoom), live video occupies the left
+side and recording/daily-file settings remain visible on the right. The layout
+also allows room for ordinary browser chrome; smaller viewports stack the panels
+and may scroll. No controls are hidden behind tabs, accordions or clipped overflow.
+
+The top-right indicator is hollow when no video feed is available, green when
+video is online, and blinking red when video is online and continuous video
+capture is running. Armed capture is not the same as running capture. Timed
+pictures do not turn the video-recording indicator red. With reduced motion,
+red remains steady; the adjacent status text always describes the current state.
+
+Click **Screenshot** to save the currently displayed frame into the saved output
+folder's `Pictures` subfolder. Files use `Screenshot_<date>_<time>_<unique-id>.jpg`
+and contain EXIF date/time, timezone, camera identity and dimensions, matching the
+timed-picture metadata. The page confirms the saved path or explains a failure.
+The button remains disabled until the browser has a decoded live frame, and while
+one screenshot is being saved. It works independently of capture mode, including
+while video recording continues or automatic capture is off.
+
+The browser sends a JPEG only to the local website; the server chooses the saved
+destination, validates the image and adds metadata before atomically publishing
+it. There is no new Philips/Tuya connection or additional camera reader. Screenshot
+uploads are bounded to 8 MiB and 16 megapixels. Other API body limits are unchanged.
+
 ## Live browser audio
 
 The live player receives video and audio through the existing local MediaMTX

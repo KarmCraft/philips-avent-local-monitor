@@ -23,7 +23,7 @@ import aiohttp
 from aiohttp import ClientSession, ClientTimeout, web
 
 from avent_api import PendingLogin, TuyaAPIError, begin_login, complete_login
-from capture import CaptureManager
+from capture import CaptureManager, MAX_SCREENSHOT_BYTES
 from feed_monitor import FeedMonitor
 from process_job import WindowsProcessJob
 
@@ -56,6 +56,7 @@ SITE_PORT = int(os.environ.get("AVENT_SITE_PORT", "8090"))
 MFA_TTL_SECONDS = 10 * 60
 STALE_SESSION_FAILURE_THRESHOLD = 4
 STALE_SESSION_RECYCLE_COOLDOWN_SECONDS = 120.0
+SCREENSHOT_LOCK = web.AppKey("screenshot_lock", asyncio.Lock)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -629,6 +630,36 @@ async def stop_capture(request: web.Request) -> web.Response:
     )
 
 
+async def save_screenshot(request: web.Request) -> web.Response:
+    if request.headers.get("Origin") not in {None, f"{request.scheme}://{request.host}"}:
+        return json_error("Screenshots must be requested from this local website", status=403)
+    if request.content_type != "image/jpeg":
+        return json_error("Send the displayed frame as image/jpeg", status=415)
+    paths = media_paths(config) if (config := load_secret()) else []
+    alias = request.query.get("camera", "")
+    camera = next((item for item in paths if item["alias"] == alias), None)
+    if camera is None:
+        return json_error("Select a configured camera", status=400)
+    if not FEED.status()["video_available"]:
+        return json_error("No live video is available. Wait for the baby unit to return.", status=409)
+    lock = request.app[SCREENSHOT_LOCK]
+    if lock.locked():
+        return json_error("A screenshot is already being saved. Try again shortly.", status=409)
+    async with lock:
+        try:
+            # Keep the stricter global limit for login/settings requests.
+            content = await request.clone(client_max_size=MAX_SCREENSHOT_BYTES).read()
+            result = await asyncio.to_thread(CAPTURE.save_screenshot, content, camera["name"])
+        except web.HTTPRequestEntityTooLarge:
+            return json_error("Screenshot exceeds the 8 MiB limit", status=413)
+        except ValueError as error:
+            return json_error(str(error))
+        except OSError:
+            LOGGER.warning("Screenshot could not be saved to the configured picture folder")
+            return json_error("Picture folder unavailable or not writable. Check the saved output folder and try again.", status=503)
+    return web.json_response({"ok": True, **result})
+
+
 async def shutdown(request: web.Request) -> web.Response:
     """Stop child services, return a response, then terminate this local server."""
     await asyncio.to_thread(SERVICES.stop)
@@ -654,6 +685,7 @@ def create_app() -> web.Application:
         middlewares=[localhost_only],
         client_max_size=16 * 1024,
     )
+    app[SCREENSHOT_LOCK] = asyncio.Lock()
     app.cleanup_ctx.append(client_session)
     app.router.add_get("/", index)
     app.router.add_static("/fonts/", WEB_ROOT / "fonts", name="fonts")
@@ -666,6 +698,7 @@ def create_app() -> web.Application:
     app.router.add_post("/api/daily-video/settings", save_daily_video_settings)
     app.router.add_post("/api/capture/start", start_capture)
     app.router.add_post("/api/capture/stop", stop_capture)
+    app.router.add_post("/api/screenshot", save_screenshot)
     app.router.add_post("/api/shutdown", shutdown)
     return app
 

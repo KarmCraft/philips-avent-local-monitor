@@ -13,6 +13,7 @@ import time
 import urllib.parse
 import uuid
 from datetime import datetime
+from io import BytesIO
 from pathlib import Path, PureWindowsPath
 from typing import Any, Callable
 
@@ -32,6 +33,8 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "delete_fragments": False,
 }
 ALLOWED_MODES = {"off", "video", "snapshots"}
+MAX_SCREENSHOT_BYTES = 8 * 1024 * 1024
+MAX_SCREENSHOT_PIXELS = 16_000_000
 FONT_FILE = Path(
     os.environ.get("AVENT_TIMESTAMP_FONT", r"C:\Windows\Fonts\segoeui.ttf")
 )
@@ -256,31 +259,34 @@ def build_snapshot_command(
     ]
 
 
-def write_image_metadata(path: Path, camera_name: str) -> None:
-    captured = datetime.fromtimestamp(path.stat().st_mtime).astimezone()
+def write_image_metadata(path: Path, camera_name: str, captured: datetime | None = None) -> None:
+    captured = captured or datetime.fromtimestamp(path.stat().st_mtime).astimezone()
     timestamp = captured.strftime("%Y:%m:%d %H:%M:%S")
     offset = captured.strftime("%z")
     if len(offset) == 5:
         offset = f"{offset[:3]}:{offset[3:]}"
 
-    with Image.open(path) as image:
-        image.load()
-        exif = image.getexif()
-        exif[270] = camera_name
-        exif[271] = "Philips Avent"
-        exif[272] = "SCD953/26"
-        exif[305] = "Avent localhost viewer"
-        exif[306] = timestamp
-        exif[36867] = timestamp
-        exif[36868] = timestamp
-        exif[36880] = offset
-        exif[36881] = offset
-        exif[36882] = offset
-        exif[40962] = image.width
-        exif[40963] = image.height
-        temporary = path.with_name(f".{path.stem}.metadata-{uuid.uuid4().hex}.jpg")
-        image.convert("RGB").save(temporary, format="JPEG", quality=95, exif=exif)
-    os.replace(temporary, path)
+    temporary = path.with_name(f".{path.stem}.metadata-{uuid.uuid4().hex}.jpg")
+    try:
+        with Image.open(path) as image:
+            image.load()
+            exif = image.getexif()
+            exif[270] = camera_name
+            exif[271] = "Philips Avent"
+            exif[272] = "SCD953/26"
+            exif[305] = "Avent localhost viewer"
+            exif[306] = timestamp
+            exif[36867] = timestamp
+            exif[36868] = timestamp
+            exif[36880] = offset
+            exif[36881] = offset
+            exif[36882] = offset
+            exif[40962] = image.width
+            exif[40963] = image.height
+            image.convert("RGB").save(temporary, format="JPEG", quality=95, exif=exif)
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 class CaptureManager:
@@ -352,6 +358,33 @@ class CaptureManager:
             temporary.write_text(json.dumps(settings, indent=2), encoding="utf-8")
             os.replace(temporary, self.settings_file)
             return settings
+
+    def save_screenshot(self, content: bytes, camera_name: str) -> dict[str, str]:
+        """Save a browser frame independently of the capture process and its mode."""
+        if not content or len(content) > MAX_SCREENSHOT_BYTES:
+            raise ValueError("Screenshot must be a JPEG smaller than 8 MiB")
+        captured = datetime.now().astimezone()
+        try:
+            with Image.open(BytesIO(content)) as image:
+                if image.format != "JPEG" or image.width * image.height > MAX_SCREENSHOT_PIXELS:
+                    raise ValueError("Screenshot must be a JPEG of at most 16 megapixels")
+                image.load()
+        except (OSError, Image.DecompressionBombError) as error:
+            raise ValueError("Screenshot is not a readable JPEG") from error
+
+        directory = Path(self.load_settings()["output_path"]) / "Pictures"
+        directory.mkdir(parents=True, exist_ok=True)
+        stamp = captured.strftime("%Y-%m-%d_%H-%M-%S_%f")
+        destination = directory / f"Screenshot_{stamp}_{uuid.uuid4().hex}.jpg"
+        temporary = directory / f".{destination.name}.part"
+        try:
+            with temporary.open("xb") as handle:
+                handle.write(content)
+            write_image_metadata(temporary, camera_name, captured=captured)
+            os.replace(temporary, destination)
+        finally:
+            temporary.unlink(missing_ok=True)
+        return {"filename": destination.name, "path": str(destination)}
 
     @property
     def running(self) -> bool:
