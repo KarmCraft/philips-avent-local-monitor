@@ -15,6 +15,15 @@ configuration, recording, privacy, and development documentation lives in the
   baby unit is switched off. Live audio starts muted; a visible **Unmute / Mute**
   button controls browser sound without reconnecting or affecting recorded audio.
   Your sound choice survives stream recovery and video reloads within the page.
+- **One-click screenshots:** save the frame currently shown in the browser as a
+  uniquely named JPEG under the configured `Pictures` folder, including capture
+  time, timezone and camera metadata. Taking a screenshot does not change the
+  recording mode, open another camera stream or interrupt video recording.
+- **Compact desktop dashboard:** live view and recording settings sit side by
+  side on wide displays, keeping all controls visible at 2560×1440 at 100% browser
+  zoom. The status indicator is hollow without video, green when video is online,
+  and blinking red only during active video recording. Reduced-motion mode uses
+  steady red instead. Smaller screens use a naturally scrolling single column.
 - **Automatic video recording:** capture waits for a real video packet before
   starting. If the feed disappears, FFmpeg is allowed to finalize the current
   file; capture resumes automatically when video returns, without reloading the
